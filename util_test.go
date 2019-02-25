@@ -12,7 +12,7 @@ type testSuiteNormalizeVar struct {
 
 func (t *testSuiteNormalizeVar) TestSimple() {
 	s := "FindMe"
-	e := "find_me"
+	e := "find-me"
 	t.Equal(e, NormalizeVar(s, ""))
 }
 
@@ -54,7 +54,7 @@ func (t *testSuiteNormalizeVar) TestDot_AllBind() {
 
 func (t *testSuiteNormalizeVar) TestCapital() {
 	s := "AllBindK"
-	e := "all_bind_k"
+	e := "all-bind-k"
 	t.Equal(e, NormalizeVar(s, ""))
 }
 

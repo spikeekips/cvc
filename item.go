@@ -20,6 +20,8 @@ type Group interface {
 
 type BaseGroup struct{}
 
+func (b *BaseGroup) ThisIsGroup() {}
+
 func (b *BaseGroup) Validate() error {
 	return nil
 }
@@ -95,10 +97,17 @@ func (c *Item) EnvName(prefix string) string {
 		t = c.FieldName
 	}
 
-	s := strings.ToUpper(NormalizeVar(
-		strings.Join(append(c.prefixes(), t), "_"),
+	s := strings.Replace(
+		strings.ToUpper(
+			NormalizeVar(
+				strings.Join(append(c.prefixes(), t), "_"),
+				"_",
+			),
+		),
+		"-",
 		"_",
-	))
+		-1,
+	)
 	if !regexpEnvName.MatchString(s) {
 		log.Error("invalid env name found", "name", s)
 		return ""

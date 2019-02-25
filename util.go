@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"reflect"
 	"regexp"
-	"runtime/debug"
 	"strings"
 	"unicode"
 
@@ -14,6 +13,14 @@ import (
 	"github.com/spf13/viper"
 	yaml "gopkg.in/yaml.v2"
 )
+
+var (
+	groupType reflect.Type
+)
+
+func init() {
+	groupType = reflect.TypeOf((*Group)(nil)).Elem()
+}
 
 func NormalizeVar(s string, sep string) string {
 	if len(s) < 1 {
@@ -40,7 +47,7 @@ func NormalizeVar(s string, sep string) string {
 	rem := rn[1:]
 	for i, c := range rem {
 		if i > 0 && unicode.IsUpper(c) && unicode.IsLower(rem[i-1]) {
-			n = append(n, '_')
+			n = append(n, '-')
 		}
 
 		n = append(n, c)
@@ -251,12 +258,6 @@ func getKeyFromConfig(prefix string, m map[string]interface{}) []string {
 }
 
 func parseConfig(c interface{}) (*Item, map[string]*Item) {
-	defer func() {
-		if r := recover(); r != nil {
-			fmt.Println(string(debug.Stack()))
-		}
-	}()
-
 	root := &Item{
 		FieldName: "",
 		Value:     reflect.ValueOf(c),
@@ -293,7 +294,7 @@ func parseConfigField(c interface{}, t reflect.Value, parents []*Item) map[strin
 		m[item.Name()] = item
 		if ft.Type.Implements(groupType) {
 			item.IsGroup = true
-			n := parseConfigField(c, fv.Elem(), append(parents, item))
+			n := parseConfigField(c, fv, append(parents, item))
 			for k, v := range n {
 				m[k] = v
 			}

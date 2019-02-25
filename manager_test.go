@@ -188,8 +188,6 @@ func (t *testManager) TestValidate() {
 	manager := NewManager(config, cmd, vp)
 	manager.Merge()
 
-	manager.Viper().WriteConfigAs("/tmp/a.yml")
-
 	{
 		var merged int
 		err := manager.GetValue("a", &merged)

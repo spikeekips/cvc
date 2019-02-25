@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 
 	logging "github.com/inconshreveable/log15"
 	"github.com/spf13/cobra"
@@ -15,15 +16,8 @@ import (
 	"github.com/spf13/viper"
 )
 
-var (
-	groupType reflect.Type
-)
-
-func init() {
-	groupType = reflect.TypeOf((*Group)(nil)).Elem()
-}
-
 type Manager struct {
+	sync.RWMutex
 	c             interface{}
 	v             *viper.Viper
 	cmd           *cobra.Command
@@ -37,6 +31,17 @@ type Manager struct {
 
 func NewManager(c interface{}, cmd *cobra.Command, v *viper.Viper) *Manager {
 	root, m := parseConfig(c)
+
+	prefix := strings.Fields(cmd.Use)[0]
+
+	if verbose {
+		var envs []string
+		for _, item := range m {
+			envs = append(envs, item.EnvName(prefix))
+		}
+
+		log.Debug("available envs:", "env", envs)
+	}
 
 	fs := map[string]*Item{}
 	for _, i := range m {
@@ -62,35 +67,46 @@ func NewManager(c interface{}, cmd *cobra.Command, v *viper.Viper) *Manager {
 }
 
 func (m *Manager) Merge() (string, error) {
-	if m.useEnv {
+	if m.UseEnv() {
 		p, err := m.MergeFromEnv()
 		if err != nil {
-			return p, err
+			return p, fmt.Errorf("failed to parse env, '%s': %v", p, err)
 		}
+		if t, err := m.root.Validate(); err != nil {
+			return t, fmt.Errorf("failed to validate env, '%s': %v", t, err)
+		}
+
 	}
 
 	{
 		p, err := m.MergeFromViper()
 		if err != nil {
-			return p, err
+			return p, fmt.Errorf("failed to parse viper, '%s': %v", p, err)
+		}
+
+		if t, err := m.root.Validate(); err != nil {
+			return t, fmt.Errorf("failed to validate viper, '%s': %v", t, err)
 		}
 	}
 
 	{
 		p, err := m.MergeFromFlags()
 		if err != nil {
-			return p, err
+			return p, fmt.Errorf("failed to parse flag, '--%s': %v", p, err)
 		}
-	}
 
-	if t, err := m.root.Validate(); err != nil {
-		return t, err
+		if t, err := m.root.Validate(); err != nil {
+			return t, fmt.Errorf("failed to validate flag, '--%s': %v", t, err)
+		}
 	}
 
 	return "", nil
 }
 
 func (m *Manager) MergeFromEnv() (string, error) {
+	m.Lock()
+	defer m.Unlock()
+
 	log_ := log.New(logging.Ctx{"type": "env"})
 	log_.Debug("trying to merge")
 
@@ -108,7 +124,7 @@ func (m *Manager) MergeFromEnv() (string, error) {
 			return env, err
 		}
 
-		if err := m.SetRaw(item.Name(), v); err != nil {
+		if err := m.setRaw(item.Name(), v); err != nil {
 			log_.Error("failed to merge", "env", env, "value", input, "error", err)
 			return env, err
 		}
@@ -118,6 +134,9 @@ func (m *Manager) MergeFromEnv() (string, error) {
 }
 
 func (m *Manager) MergeFromFlags() (string, error) {
+	m.Lock()
+	defer m.Unlock()
+
 	log_ := log.New(logging.Ctx{"type": "flag"})
 	log_.Debug("trying to merge")
 
@@ -132,7 +151,7 @@ func (m *Manager) MergeFromFlags() (string, error) {
 			return
 		}
 
-		item, found := m.ItemByFlag(f.Name)
+		item, found := m.itemByFlag(f.Name)
 		if !found {
 			problemFlag = f.Name
 			err = fmt.Errorf("unknown flag found: '%s'", f.Name)
@@ -148,7 +167,7 @@ func (m *Manager) MergeFromFlags() (string, error) {
 			problemFlag = f.Name
 			return
 		}
-		if err := m.SetRaw(item.Name(), a); err != nil {
+		if err := m.setRaw(item.Name(), a); err != nil {
 			problemFlag = f.Name
 			log_.Error("failed to merge", "flag", f.Name, "value", input, "error", err)
 			return
@@ -161,6 +180,9 @@ func (m *Manager) MergeFromFlags() (string, error) {
 }
 
 func (m *Manager) MergeFromViper() (string, error) {
+	m.Lock()
+	defer m.Unlock()
+
 	log_ := log.New(logging.Ctx{"type": "viper"})
 
 	log_.Debug("trying to merge")
@@ -172,7 +194,7 @@ func (m *Manager) MergeFromViper() (string, error) {
 	var inserted []string
 	for _, r := range m.viperConfigs {
 		r.Seek(0, 0)
-		is, err := GetKeysFromViperConfig(m.Viper(), r)
+		is, err := GetKeysFromViperConfig(m.v, r)
 		if err != nil {
 			return "", err
 		} else if len(is) < 1 {
@@ -213,7 +235,7 @@ func (m *Manager) MergeFromViper() (string, error) {
 		}
 		key := ks[1]
 
-		item, found := m.Get(key)
+		item, found := m.get(key)
 		if !found {
 			log_.Warn("unknown key found", "raw", k, "key", key)
 			continue
@@ -225,7 +247,7 @@ func (m *Manager) MergeFromViper() (string, error) {
 			log_.Error("failed to parse", "raw", k, "key", key, "error", err, "input", m.v.Get(k))
 			return k, err
 		}
-		if err := m.SetRaw(key, a); err != nil {
+		if err := m.setRaw(key, a); err != nil {
 			log_.Error("failed to merge", "raw", k, "key", key, "value", m.v.Get(k), "error", err)
 			return k, err
 		}
@@ -236,11 +258,24 @@ func (m *Manager) MergeFromViper() (string, error) {
 	return "", nil
 }
 
-func (m *Manager) UseEnv(s bool) {
+func (m *Manager) UseEnv() bool {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.useEnv
+}
+
+func (m *Manager) SetUseEnv(s bool) {
+	m.Lock()
+	defer m.Unlock()
+
 	m.useEnv = s
 }
 
 func (m *Manager) SetViperConfig(b []byte) error {
+	m.Lock()
+	defer m.Unlock()
+
 	m.viperConfigs = append(m.viperConfigs, bytes.NewReader(b))
 	return nil
 }
@@ -254,14 +289,23 @@ func (m *Manager) SetViperConfigFile(f string) error {
 }
 
 func (m *Manager) Root() *Item {
+	m.RLock()
+	defer m.RUnlock()
+
 	return m.root
 }
 
 func (m *Manager) Config() interface{} {
+	m.RLock()
+	defer m.RUnlock()
+
 	return m.c
 }
 
 func (m *Manager) Envs() []string {
+	m.RLock()
+	defer m.RUnlock()
+
 	prefix := strings.Fields(m.cmd.Use)[0]
 
 	var envs []string
@@ -273,6 +317,9 @@ func (m *Manager) Envs() []string {
 }
 
 func (m *Manager) ConfigPprint() (o []interface{}) {
+	m.RLock()
+	defer m.RUnlock()
+
 	for _, item := range m.m {
 		if item.IsGroup {
 			continue
@@ -283,6 +330,9 @@ func (m *Manager) ConfigPprint() (o []interface{}) {
 }
 
 func (m *Manager) ConfigString() string {
+	m.RLock()
+	defer m.RUnlock()
+
 	b, err := json.MarshalIndent(m.c, "", "  ")
 	if err != nil {
 		log.Error("failed to marshal config", "error", err)
@@ -293,79 +343,133 @@ func (m *Manager) ConfigString() string {
 }
 
 func (m *Manager) FlagSet() *pflag.FlagSet {
+	m.RLock()
+	defer m.RUnlock()
+
 	return m.cmd.Flags()
 }
 
 func (m *Manager) Viper() *viper.Viper {
+	m.RLock()
+	defer m.RUnlock()
+
 	return m.v
 }
 
 func (m *Manager) Map() map[string]*Item {
+	m.RLock()
+	defer m.RUnlock()
+
 	return m.m
 }
 
 func (m *Manager) Get(key string) (*Item, bool) {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.get(key)
+}
+
+func (m *Manager) get(key string) (*Item, bool) {
 	c, found := m.m[key]
 	return c, found
 }
 
 func (m *Manager) GetValue(key string, i interface{}) error {
-	k, found := m.m[key]
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.getValue(key, i)
+}
+
+func (m *Manager) getValue(key string, i interface{}) error {
+	item, found := m.m[key]
 	if !found {
 		return fmt.Errorf("key not found")
 	}
 
-	reflect.ValueOf(i).Elem().Set(k.Value)
+	reflect.ValueOf(i).Elem().Set(item.Value)
 	return nil
 }
 
 func (m *Manager) SetValue(key string, i interface{}) error {
-	k, found := m.m[key]
+	m.Lock()
+	defer m.Unlock()
+
+	return m.setValue(key, i)
+}
+
+func (m *Manager) setValue(key string, i interface{}) error {
+	item, found := m.m[key]
 	if !found {
 		return fmt.Errorf("key not found: '%v'", key)
 	}
 
-	r, err := k.Parse(i)
+	r, err := item.Parse(i)
 	if err != nil {
 		return err
 	}
 
-	if !k.Value.Type().AssignableTo(reflect.TypeOf(r)) {
+	if !item.Value.Type().AssignableTo(reflect.TypeOf(r)) {
 		return fmt.Errorf("not assignable")
 	}
 
-	k.Value.Set(reflect.ValueOf(r))
+	item.Value.Set(reflect.ValueOf(r))
 	return nil
 }
 
 func (m *Manager) SetRaw(key string, i interface{}) error {
-	k, found := m.m[key]
+	m.Lock()
+	defer m.Unlock()
+
+	return m.setRaw(key, i)
+}
+
+func (m *Manager) setRaw(key string, i interface{}) error {
+	item, found := m.m[key]
 	if !found {
 		return fmt.Errorf("key not found: '%v'", key)
 	}
 
-	if !k.Value.CanSet() {
+	if !item.Value.CanSet() {
 		return fmt.Errorf("cannot set")
 	}
 
-	if !k.Value.Type().AssignableTo(reflect.TypeOf(i)) {
-		return fmt.Errorf("not assignable: %T - %T", k.Value.Interface(), i)
+	if !item.Value.Type().AssignableTo(reflect.TypeOf(i)) {
+		return fmt.Errorf("not assignable: %T - %T", item.Value.Interface(), i)
 	}
 
-	k.Value.Set(reflect.ValueOf(i))
+	item.Value.Set(reflect.ValueOf(i))
 	return nil
 }
 
 func (m *Manager) SetEnvLookupFunc(fn func(string) (string, bool)) {
+	m.Lock()
+	defer m.Unlock()
+
 	m.envLookupFunc = fn
 }
 
 func (m *Manager) ItemByFlag(flag string) (*Item, bool) {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.itemByFlag(flag)
+}
+
+func (m *Manager) itemByFlag(flag string) (*Item, bool) {
 	c, found := m.fs[flag]
 	return c, found
 }
 
 func (m *Manager) setFlag(item *Item) error {
+	if item.IsGroup {
+		return nil
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
 	if len(item.FlagName()) < 1 {
 		return nil
 	}
