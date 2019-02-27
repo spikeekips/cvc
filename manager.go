@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -16,6 +18,25 @@ import (
 	"github.com/spf13/viper"
 )
 
+type viperConfig struct {
+	sync.Mutex
+	format string
+	r      *bytes.Reader
+}
+
+func (c viperConfig) Reader() io.Reader {
+	c.Lock()
+	defer c.Unlock()
+
+	c.r.Seek(0, 0)
+	b, _ := ioutil.ReadAll(c.r)
+	return bytes.NewReader(b)
+}
+
+func (c viperConfig) Keys(group string, v *viper.Viper) ([]string, error) {
+	return GetKeysFromViperConfig(group, c.format, v, c.Reader())
+}
+
 type Manager struct {
 	sync.RWMutex
 	c             interface{}
@@ -24,20 +45,37 @@ type Manager struct {
 	m             map[string]*Item
 	fs            map[string]*Item
 	root          *Item
-	viperConfigs  []*bytes.Reader
+	viperConfigs  []viperConfig
 	envLookupFunc func(string) (string, bool)
 	useEnv        bool
+	group         string
+	groups        []string
 }
 
 func NewManager(c interface{}, cmd *cobra.Command, v *viper.Viper) *Manager {
 	root, m := parseConfig(c)
 
-	prefix := strings.Fields(cmd.Use)[0]
+	var groups []string
+	thisCmd := cmd
+	for {
+		groups = append(groups, strings.Fields(thisCmd.Use)[0])
+		thisCmd = thisCmd.Parent()
+		if thisCmd.Parent() == nil {
+			break
+		}
+	}
+
+	for i := len(groups)/2 - 1; i >= 0; i-- {
+		opp := len(groups) - 1 - i
+		groups[i], groups[opp] = groups[opp], groups[i]
+	}
+
+	group := strings.Join(groups, "-")
 
 	if verbose {
 		var envs []string
 		for _, item := range m {
-			envs = append(envs, item.EnvName(prefix))
+			envs = append(envs, item.EnvName(group))
 		}
 
 		log.Debug("available envs:", "env", envs)
@@ -57,6 +95,8 @@ func NewManager(c interface{}, cmd *cobra.Command, v *viper.Viper) *Manager {
 		root:          root,
 		envLookupFunc: os.LookupEnv,
 		useEnv:        true,
+		group:         group,
+		groups:        groups,
 	}
 
 	for _, item := range manager.Map() {
@@ -110,10 +150,8 @@ func (m *Manager) MergeFromEnv() (string, error) {
 	log_ := log.New(logging.Ctx{"type": "env"})
 	log_.Debug("trying to merge")
 
-	prefix := strings.Fields(m.cmd.Use)[0]
-
 	for _, item := range m.m {
-		env := item.EnvName(prefix)
+		env := item.EnvName(m.group)
 		input, found := m.envLookupFunc(env)
 		if !found {
 			continue
@@ -192,15 +230,15 @@ func (m *Manager) MergeFromViper() (string, error) {
 	}
 
 	var inserted []string
-	for _, r := range m.viperConfigs {
-		r.Seek(0, 0)
-		is, err := GetKeysFromViperConfig(m.v, r)
+	for _, c := range m.viperConfigs {
+		is, err := c.Keys(m.group, m.v)
 		if err != nil {
 			return "", err
 		} else if len(is) < 1 {
 			log_.Debug("no config values found")
 			continue
 		}
+		log_.Debug("keys loaded", "keys", is)
 
 		for _, i := range is {
 			var found bool
@@ -216,13 +254,10 @@ func (m *Manager) MergeFromViper() (string, error) {
 			inserted = append(inserted, i)
 		}
 
-		r.Seek(0, 0)
-		if err := m.v.ReadConfig(r); err != nil {
+		if err := m.v.ReadConfig(c.Reader()); err != nil {
 			return "", err
 		}
 	}
-
-	group := strings.Fields(m.cmd.Use)[0]
 
 	for _, k := range inserted {
 		ks := strings.SplitN(k, ".", 2)
@@ -230,7 +265,7 @@ func (m *Manager) MergeFromViper() (string, error) {
 			log_.Warn("unknown key found", "key", k)
 			continue
 		}
-		if ks[0] != group {
+		if ks[0] != m.group {
 			continue
 		}
 		key := ks[1]
@@ -265,6 +300,14 @@ func (m *Manager) UseEnv() bool {
 	return m.useEnv
 }
 
+func (m *Manager) Groups() []string {
+	return m.groups
+}
+
+func (m *Manager) Group() string {
+	return m.group
+}
+
 func (m *Manager) SetUseEnv(s bool) {
 	m.Lock()
 	defer m.Unlock()
@@ -272,20 +315,36 @@ func (m *Manager) SetUseEnv(s bool) {
 	m.useEnv = s
 }
 
-func (m *Manager) SetViperConfig(b []byte) error {
+func (m *Manager) SetViperConfig(format string, b []byte) error {
 	m.Lock()
 	defer m.Unlock()
 
-	m.viperConfigs = append(m.viperConfigs, bytes.NewReader(b))
+	m.viperConfigs = append(m.viperConfigs, viperConfig{format: format, r: bytes.NewReader(b)})
 	return nil
 }
 
 func (m *Manager) SetViperConfigFile(f string) error {
+	ext := strings.ToLower(filepath.Ext(f))
+	if len(ext) < 2 {
+		return fmt.Errorf("no filename extension")
+	}
+	var found bool
+	for _, e := range viper.SupportedExts {
+		if e == ext[1:] {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("unsupported file type found")
+	}
+
 	b, err := ioutil.ReadFile(f)
 	if err != nil {
 		return err
 	}
-	return m.SetViperConfig(b)
+
+	return m.SetViperConfig(ext[1:], b)
 }
 
 func (m *Manager) Root() *Item {
@@ -306,11 +365,9 @@ func (m *Manager) Envs() []string {
 	m.RLock()
 	defer m.RUnlock()
 
-	prefix := strings.Fields(m.cmd.Use)[0]
-
 	var envs []string
 	for _, item := range m.m {
-		envs = append(envs, item.EnvName(prefix))
+		envs = append(envs, item.EnvName(m.group))
 	}
 
 	return envs
@@ -342,6 +399,10 @@ func (m *Manager) ConfigString() string {
 	return string(b)
 }
 
+func (m *Manager) Cobra() *cobra.Command {
+	return m.cmd
+}
+
 func (m *Manager) FlagSet() *pflag.FlagSet {
 	m.RLock()
 	defer m.RUnlock()
@@ -354,6 +415,30 @@ func (m *Manager) Viper() *viper.Viper {
 	defer m.RUnlock()
 
 	return m.v
+}
+
+func (m *Manager) ViperString(format string) (string, error) {
+	m.RLock()
+	defer m.RUnlock()
+
+	f, err := ioutil.TempFile("", fmt.Sprintf("cvc*.%s", format))
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		os.Remove(f.Name())
+	}()
+
+	if err = m.v.WriteConfigAs(f.Name()); err != nil {
+		return "", err
+	}
+
+	b, err := ioutil.ReadFile(f.Name())
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(b)), nil
 }
 
 func (m *Manager) Map() map[string]*Item {
@@ -568,9 +653,7 @@ func (m *Manager) setFlag(item *Item) error {
 		return fmt.Errorf("value type, '%s' is not supported by flag", t)
 	}
 
-	group := strings.Fields(m.cmd.Use)[0]
-
-	viperName := group + "." + item.Name()
+	viperName := m.group + "." + item.Name()
 	m.v.SetDefault(viperName, defaultValue.Interface())
 
 	item.ViperName = viperName

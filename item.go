@@ -108,15 +108,16 @@ func (c *Item) EnvName(prefix string) string {
 		"_",
 		-1,
 	)
+	if len(prefix) > 0 {
+		s = strings.Replace(strings.ToUpper(prefix), "-", "_", -1) + "_" + s
+	}
+
 	if !regexpEnvName.MatchString(s) {
 		log.Error("invalid env name found", "name", s)
 		return ""
 	}
 
-	if len(prefix) < 1 {
-		return s
-	}
-	return strings.ToUpper(prefix) + "_" + s
+	return s
 }
 
 func (c *Item) name(n string) string {

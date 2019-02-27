@@ -3,7 +3,6 @@ package cvc
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"reflect"
 	"regexp"
 	"strings"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/spf13/cast"
 	"github.com/spf13/viper"
-	yaml "gopkg.in/yaml.v2"
 )
 
 var (
@@ -196,26 +194,30 @@ func GetFlagValue(item *Item) (reflect.Value, error) {
 	return item.Value, fmt.Errorf("not found `FlagValue` function")
 }
 
-func GetKeysFromViperConfig(v *viper.Viper, r io.Reader) ([]string, error) {
-	b, err := ioutil.ReadAll(r)
-	if err != nil {
-		return nil, err
-	}
-	b = []byte(strings.TrimSpace(string(b)))
-
-	var m map[string]interface{}
-	if err := yaml.Unmarshal(b, &m); err != nil {
+func GetKeysFromViperConfig(group string, format string, v *viper.Viper, r io.Reader) ([]string, error) {
+	nv := viper.New()
+	nv.SetConfigType(format)
+	if err := nv.ReadConfig(r); err != nil {
 		return nil, err
 	}
 
-	names := getKeyFromConfig("", m)
-	for _, k := range names {
+	var keys []string
+	for _, k := range nv.AllKeys() {
+		l := strings.SplitN(k, ".", 2)
+		if len(l) != 2 {
+			continue
+		}
+		if l[0] != group {
+			continue
+		}
+
 		if i := v.Get(k); i == nil {
 			return nil, fmt.Errorf("unknown key found: '%s'", k)
 		}
+		keys = append(keys, k)
 	}
 
-	return names, nil
+	return keys, nil
 }
 
 func getKeyFromConfig(prefix string, m map[string]interface{}) []string {
@@ -266,20 +268,33 @@ func parseConfig(c interface{}) (*Item, map[string]*Item) {
 		IsGroup:   true,
 	}
 
-	return root, parseConfigField(c, root.Value, []*Item{root})
+	return root, parseConfigField(c, reflect.TypeOf(c), root.Value, []*Item{root})
 }
 
-func parseConfigField(c interface{}, t reflect.Value, parents []*Item) map[string]*Item {
+func parseConfigField(c interface{}, t reflect.Type, v reflect.Value, parents []*Item) map[string]*Item {
 	group := parents[len(parents)-1]
 
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
 	m := map[string]*Item{}
-	for i := 0; i < t.Elem().NumField(); i++ {
-		fv := t.Elem().Field(i)
-		ft := t.Elem().Type().Field(i)
+	for i := 0; i < t.NumField(); i++ {
+		ft := t.Field(i)
+
+		var fv reflect.Value
+		if v.IsNil() {
+			fv = reflect.New(ft.Type).Elem()
+		} else if v.Kind() == reflect.Ptr {
+			fv = v.Elem().Field(i)
+		} else {
+			fv = v.Field(i)
+		}
 
 		if ft.Type == reflect.TypeOf(BaseGroup{}) {
 			continue
 		} else if !fv.CanSet() {
+			fmt.Println("<", ft, fv)
 			continue
 		}
 
@@ -294,7 +309,7 @@ func parseConfigField(c interface{}, t reflect.Value, parents []*Item) map[strin
 		m[item.Name()] = item
 		if ft.Type.Implements(groupType) {
 			item.IsGroup = true
-			n := parseConfigField(c, fv, append(parents, item))
+			n := parseConfigField(c, ft.Type, fv, append(parents, item))
 			for k, v := range n {
 				m[k] = v
 			}
