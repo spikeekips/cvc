@@ -294,7 +294,6 @@ func parseConfigField(c interface{}, t reflect.Type, v reflect.Value, parents []
 		if ft.Type == reflect.TypeOf(BaseGroup{}) {
 			continue
 		} else if !fv.CanSet() {
-			fmt.Println("<", ft, fv)
 			continue
 		}
 

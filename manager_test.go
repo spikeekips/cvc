@@ -212,7 +212,7 @@ func (t *testManager) TestViper() {
 	vp.SetConfigType("yml")
 
 	manager := NewManager(config, cmd, vp)
-	manager.SetViperConfig([]byte(`
+	manager.SetViperConfig("yml", []byte(`
 naru:
   a: "10"
   b: "2"
@@ -244,12 +244,12 @@ func (t *testManager) TestViperMultipleConfig() {
 	vp.SetConfigType("yml")
 
 	manager := NewManager(config, cmd, vp)
-	manager.SetViperConfig([]byte(`
+	manager.SetViperConfig("yml", []byte(`
 naru:
   a: "10"
   b: "2"
 `))
-	manager.SetViperConfig([]byte(`
+	manager.SetViperConfig("yml", []byte(`
 naru:
   a: "3"
 `))

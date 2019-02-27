@@ -1,6 +1,7 @@
 package cvc
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 
@@ -60,7 +62,7 @@ func NewManager(c interface{}, cmd *cobra.Command, v *viper.Viper) *Manager {
 	for {
 		groups = append(groups, strings.Fields(thisCmd.Use)[0])
 		thisCmd = thisCmd.Parent()
-		if thisCmd.Parent() == nil {
+		if thisCmd == nil || thisCmd.Parent() == nil {
 			break
 		}
 	}
@@ -323,7 +325,17 @@ func (m *Manager) SetViperConfig(format string, b []byte) error {
 	return nil
 }
 
-func (m *Manager) SetViperConfigFile(f string) error {
+func (m *Manager) SetViperConfigFile(fs ...string) error {
+	for _, f := range fs {
+		if err := m.setViperConfigFile(f); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Manager) setViperConfigFile(f string) error {
 	ext := strings.ToLower(filepath.Ext(f))
 	if len(ext) < 2 {
 		return fmt.Errorf("no filename extension")
@@ -436,6 +448,27 @@ func (m *Manager) ViperString(format string) (string, error) {
 	b, err := ioutil.ReadFile(f.Name())
 	if err != nil {
 		return "", err
+	}
+
+	if format == "props" || format == "properties" {
+		var lines []string
+		bf := bufio.NewReader(bytes.NewBuffer(b))
+		for {
+			l, err := bf.ReadString('\n')
+			if err == io.EOF {
+				break
+			}
+			s := strings.TrimSpace(l)
+			if len(s) < 1 {
+				continue
+			}
+
+			lines = append(lines, s)
+		}
+
+		sort.Strings(lines)
+
+		return strings.Join(lines, "\n"), nil
 	}
 
 	return strings.TrimSpace(string(b)), nil

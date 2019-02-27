@@ -146,6 +146,10 @@ func (c *Item) Validate() (string, error) {
 }
 
 func (c *Item) validate() error {
+	if (c.Value.Kind() == reflect.Ptr && c.Value.Type().Elem().Kind() == reflect.Struct) && c.Value.IsNil() {
+		return nil
+	}
+
 	fns := GetFuncFromItem(c, "Validate", 0, 1)
 	for _, f := range fns {
 		return CallValidateFunc(f)
