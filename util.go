@@ -160,6 +160,11 @@ func getConfigTypeByValue(v reflect.Value) string {
 	case string:
 		return "StringVar"
 	default:
+		switch v.Type().String() {
+		case "time.Duration":
+			return "DurationVar"
+		}
+
 		return "StringVar"
 	}
 }

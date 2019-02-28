@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -164,6 +165,36 @@ func (t *testManager) TestParse() {
 		err := manager.GetValue("a", &merged)
 		t.NoError(err)
 		t.Equal(1000, merged)
+	}
+}
+
+type testConfigTimeDuration struct {
+	A int
+	T time.Duration
+}
+
+func (t *testManager) TestParseTimeDuration() {
+	config := &testConfigTimeDuration{}
+
+	cmd := &cobra.Command{
+		Use:   "naru",
+		Short: "naru",
+	}
+	cmd.SetOutput(ioutil.Discard)
+
+	manager := NewManager("", config, cmd, viper.New())
+
+	cmd.SetArgs([]string{"--t", "10s"})
+	err := cmd.Execute()
+	t.NoError(err)
+
+	manager.Merge()
+
+	{
+		var merged time.Duration
+		err := manager.GetValue("t", &merged)
+		t.NoError(err)
+		t.Equal(time.Duration(10000000000), merged)
 	}
 }
 

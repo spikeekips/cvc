@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	logging "github.com/inconshreveable/log15"
 	"github.com/spf13/cobra"
@@ -116,9 +117,6 @@ func (m *Manager) Merge() (string, error) {
 		if err != nil {
 			return p, fmt.Errorf("failed to parse env, '%s': %v", p, err)
 		}
-		if t, err := m.root.Validate(); err != nil {
-			return t, fmt.Errorf("failed to validate env, '%s': %v", t, err)
-		}
 
 	}
 
@@ -127,10 +125,6 @@ func (m *Manager) Merge() (string, error) {
 		if err != nil {
 			return p, fmt.Errorf("failed to parse viper, '%s': %v", p, err)
 		}
-
-		if t, err := m.root.Validate(); err != nil {
-			return t, fmt.Errorf("failed to validate viper, '%s': %v", t, err)
-		}
 	}
 
 	{
@@ -138,10 +132,10 @@ func (m *Manager) Merge() (string, error) {
 		if err != nil {
 			return p, fmt.Errorf("failed to parse flag, '--%s': %v", p, err)
 		}
+	}
 
-		if t, err := m.root.Validate(); err != nil {
-			return t, fmt.Errorf("failed to validate flag, '--%s': %v", t, err)
-		}
+	if t, err := m.root.Validate(); err != nil {
+		return t, fmt.Errorf("failed to validate, '%s': %v", t, err)
 	}
 
 	return "", nil
@@ -699,6 +693,10 @@ func (m *Manager) setFlag(item *Item) error {
 		item.Input = b
 	case "StringVar":
 		var b *string = new(string)
+		call(t, b, defaultValue)
+		item.Input = b
+	case "DurationVar":
+		var b *time.Duration = new(time.Duration)
 		call(t, b, defaultValue)
 		item.Input = b
 	default:
