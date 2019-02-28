@@ -186,7 +186,7 @@ func (c *Item) ParseEnv(i string) (interface{}, error) {
 	case "StringVar":
 		return c.Parse(i)
 	default:
-		log_.Error("failed to parse", "type", t)
+		log_.Error("not supported type", "type", t)
 		return nil, fmt.Errorf("failed to parse env value")
 	}
 

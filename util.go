@@ -20,6 +20,33 @@ func init() {
 	groupType = reflect.TypeOf((*Group)(nil)).Elem()
 }
 
+type StructMethod struct {
+	Func reflect.Value
+	Body reflect.Value
+}
+
+func (m StructMethod) Call(args ...reflect.Value) []reflect.Value {
+	args = append(args[:0], append([]reflect.Value{m.Body}, args[0:]...)...)
+
+	return m.Func.Call(args)
+}
+
+func (m StructMethod) Empty() bool {
+	return m.Func == (reflect.Value{})
+}
+
+func (m StructMethod) NumIn() int {
+	return m.Func.Type().NumIn()
+}
+
+func (m StructMethod) NumOut() int {
+	return m.Func.Type().NumOut() - 1
+}
+
+func (m StructMethod) In(i int) reflect.Type {
+	return m.Func.Type().In(i + 1)
+}
+
 func NormalizeVar(s string, sep string) string {
 	if len(s) < 1 {
 		return s
@@ -54,7 +81,7 @@ func NormalizeVar(s string, sep string) string {
 	return strings.ToLower(string(n))
 }
 
-func getConfigTypeByFuncs(fs ...reflect.Value) string {
+func getConfigTypeByFuncs(fs ...StructMethod) string {
 	var t string
 	for _, f := range fs {
 		t = getConfigTypeByFunc(f)
@@ -66,8 +93,8 @@ func getConfigTypeByFuncs(fs ...reflect.Value) string {
 	return t
 }
 
-func getConfigTypeByFunc(f reflect.Value) string {
-	kind := f.Type().In(0).Kind()
+func getConfigTypeByFunc(f StructMethod) string {
+	kind := f.In(0).Kind()
 	switch kind {
 	case reflect.Bool:
 		return "BoolVar"
@@ -137,16 +164,21 @@ func getConfigTypeByValue(v reflect.Value) string {
 	}
 }
 
-func GetMethodByName(i interface{}, name string, numIn, numOut int) (m reflect.Value, found bool) {
-	m = reflect.ValueOf(i).MethodByName(name)
-	if m == (reflect.Value{}) {
+func GetMethodByName(i interface{}, name string, numIn, numOut int) (m StructMethod, found bool) {
+	var method reflect.Method
+	method, found = reflect.TypeOf(i).MethodByName(name)
+	if !found {
 		return
 	}
-	if !m.IsValid() {
+	if method.Func == (reflect.Value{}) {
+		return
+	}
+	if !method.Func.IsValid() {
 		return
 	}
 
-	if m.Type().NumIn() != numIn || m.Type().NumOut() != numOut {
+	m = StructMethod{Func: method.Func, Body: reflect.ValueOf(i)}
+	if m.NumIn() != numIn || m.NumOut() != numOut {
 		return
 	}
 
@@ -154,10 +186,10 @@ func GetMethodByName(i interface{}, name string, numIn, numOut int) (m reflect.V
 	return
 }
 
-func GetFuncFromItem(item *Item, name string, numIn, numOut int) []reflect.Value {
-	var fns []reflect.Value
+func GetFuncFromItem(item *Item, name string, numIn, numOut int) []StructMethod {
+	var fns []StructMethod
 
-	var parseFunc reflect.Value
+	var parseFunc StructMethod
 	var found bool
 	parseFunc, found = GetMethodByName(
 		item.Value.Interface(),
@@ -165,7 +197,8 @@ func GetFuncFromItem(item *Item, name string, numIn, numOut int) []reflect.Value
 		numIn,
 		numOut,
 	)
-	if found && parseFunc != (reflect.Value{}) {
+	if found && !parseFunc.Empty() {
+		parseFunc.Body = item.Value
 		fns = append(fns, parseFunc)
 	}
 
@@ -176,7 +209,38 @@ func GetFuncFromItem(item *Item, name string, numIn, numOut int) []reflect.Value
 			numIn,
 			numOut,
 		)
-		if found && parseFunc != (reflect.Value{}) {
+		if found && !parseFunc.Empty() {
+			parseFunc.Body = item.Group.Value
+			fns = append(fns, parseFunc)
+		}
+	}
+
+	return fns
+}
+
+func GetFuncFromItemStruct(item *Item, name string, numIn, numOut int) []StructMethod {
+	var fns []StructMethod
+
+	var parseFunc StructMethod
+	var found bool
+	parseFunc, found = GetMethodByName(
+		item.Value.Interface(),
+		name,
+		numIn,
+		numOut,
+	)
+	if found && !parseFunc.Empty() {
+		fns = append(fns, parseFunc)
+	}
+
+	if item.Group != nil {
+		parseFunc, found = GetMethodByName(
+			item.Group.Value.Interface(),
+			fmt.Sprintf("%s%s", name, item.FieldName),
+			numIn,
+			numOut,
+		)
+		if found && !parseFunc.Empty() {
 			fns = append(fns, parseFunc)
 		}
 	}
@@ -187,7 +251,7 @@ func GetFuncFromItem(item *Item, name string, numIn, numOut int) []reflect.Value
 func GetFlagValue(item *Item) (reflect.Value, error) {
 	fns := GetFuncFromItem(item, "FlagValue", 1, 2)
 	for _, fn := range fns {
-		vs := fn.Call([]reflect.Value{})
+		vs := fn.Call()
 		return vs[0], nil
 	}
 
@@ -283,12 +347,15 @@ func parseConfigField(c interface{}, t reflect.Type, v reflect.Value, parents []
 		ft := t.Field(i)
 
 		var fv reflect.Value
-		if v.IsNil() {
-			fv = reflect.New(ft.Type).Elem()
-		} else if v.Kind() == reflect.Ptr {
+		if v.Kind() == reflect.Ptr {
 			fv = v.Elem().Field(i)
 		} else {
 			fv = v.Field(i)
+		}
+
+		if fv.Kind() == reflect.Ptr && fv.IsNil() {
+			fv.Set(reflect.New(ft.Type.Elem()))
+			fv = v.Elem().Field(i)
 		}
 
 		if ft.Type == reflect.TypeOf(BaseGroup{}) {
@@ -318,8 +385,8 @@ func parseConfigField(c interface{}, t reflect.Type, v reflect.Value, parents []
 	return m
 }
 
-func CallParseFunc(f reflect.Value, i interface{}) (interface{}, error) {
-	rs := f.Call([]reflect.Value{reflect.ValueOf(i)})
+func CallParseFunc(f StructMethod, i interface{}) (interface{}, error) {
+	rs := f.Call(reflect.ValueOf(i))
 	v := rs[0].Interface()
 	err := rs[1].Interface()
 	if err == nil {
@@ -340,8 +407,8 @@ func CallParseFunc(f reflect.Value, i interface{}) (interface{}, error) {
 	return nil, ErrorMethodNotFound
 }
 
-func CallValidateFunc(f reflect.Value) error {
-	rs := f.Call([]reflect.Value{})
+func CallValidateFunc(f StructMethod) error {
+	rs := f.Call()
 	err := rs[0].Interface()
 	if err == nil {
 		return nil

@@ -594,12 +594,12 @@ func (m *Manager) setFlag(item *Item) error {
 
 	call := func(t string, v interface{}, d reflect.Value) {
 		method, _ := GetMethodByName(m.cmd.Flags(), t, 4, 0)
-		method.Call([]reflect.Value{
+		method.Call(
 			reflect.ValueOf(v),
 			reflect.ValueOf(item.FlagName()),
 			d,
 			reflect.ValueOf(item.Tag.Get("flag-help")),
-		})
+		)
 		return
 	}
 
@@ -618,7 +618,7 @@ func (m *Manager) setFlag(item *Item) error {
 		if !found {
 			defaultValue = reflect.ValueOf(fmt.Sprintf("%v", item.Value.Interface()))
 		} else {
-			vs := method.Call([]reflect.Value{})
+			vs := method.Call()
 			if len(vs) > 0 {
 				defaultValue = vs[0]
 			}
