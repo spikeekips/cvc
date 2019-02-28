@@ -593,6 +593,10 @@ func (m *Manager) setFlag(item *Item) error {
 	}
 
 	call := func(t string, v interface{}, d reflect.Value) {
+		if !item.EnableFlag() {
+			return
+		}
+
 		method, _ := GetMethodByName(m.cmd.Flags(), t, 4, 0)
 		method.Call(
 			reflect.ValueOf(v),

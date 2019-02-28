@@ -71,6 +71,21 @@ func (c *Item) prefixes() []string {
 	return names
 }
 
+func (c *Item) EnableFlag() bool {
+	i := c
+	for {
+		if i.Tag.Get("flag") == "-" {
+			return false
+		}
+		if i.Group == nil {
+			break
+		}
+		i = i.Group
+	}
+
+	return true
+}
+
 func (c *Item) FlagName() string {
 	tag := c.Tag.Get("flag")
 	switch {
