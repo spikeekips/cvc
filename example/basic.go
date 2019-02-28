@@ -87,7 +87,7 @@ func init() {
 			Format: "terminal",
 		},
 	}
-	manager = cvc.NewManager(config, cmd, vp)
+	manager = cvc.NewManager("naru", config, cmd, vp)
 }
 
 func main() {

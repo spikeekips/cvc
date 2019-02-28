@@ -31,7 +31,7 @@ func (t *testManager) TestNew() {
 	}
 	vp := viper.New()
 
-	manager := NewManager(config, cmd, vp)
+	manager := NewManager("", config, cmd, vp)
 	t.NotEmpty(manager.Config())
 }
 
@@ -50,7 +50,7 @@ func (t *testManager) TestRoot() {
 	}
 	vp := viper.New()
 
-	manager := NewManager(config, cmd, vp)
+	manager := NewManager("", config, cmd, vp)
 	t.NotEmpty(manager.Root())
 	t.Equal(2, len(manager.Root().Children))
 
@@ -85,7 +85,7 @@ func (t *testManager) TestMerge() {
 
 	vp := viper.New()
 
-	manager := NewManager(config, cmd, vp)
+	manager := NewManager("", config, cmd, vp)
 
 	cmd.SetArgs([]string{"--a", "10", "--b", "20"})
 	err := cmd.Execute()
@@ -151,7 +151,7 @@ func (t *testManager) TestParse() {
 
 	vp := viper.New()
 
-	manager := NewManager(config, cmd, vp)
+	manager := NewManager("", config, cmd, vp)
 
 	cmd.SetArgs([]string{"--a", "10", "--b", "20"})
 	err := cmd.Execute()
@@ -185,7 +185,7 @@ func (t *testManager) TestValidate() {
 
 	vp := viper.New()
 
-	manager := NewManager(config, cmd, vp)
+	manager := NewManager("", config, cmd, vp)
 	manager.Merge()
 
 	{
@@ -211,7 +211,7 @@ func (t *testManager) TestViper() {
 	vp := viper.New()
 	vp.SetConfigType("yml")
 
-	manager := NewManager(config, cmd, vp)
+	manager := NewManager("", config, cmd, vp)
 	manager.SetViperConfig("yml", []byte(`
 naru:
   a: "10"
@@ -243,7 +243,7 @@ func (t *testManager) TestViperMultipleConfig() {
 	vp := viper.New()
 	vp.SetConfigType("yml")
 
-	manager := NewManager(config, cmd, vp)
+	manager := NewManager("", config, cmd, vp)
 	manager.SetViperConfig("yml", []byte(`
 naru:
   a: "10"
@@ -285,7 +285,7 @@ func (t *testManager) TestEnv() {
 
 	vp := viper.New()
 
-	manager := NewManager(config, cmd, vp)
+	manager := NewManager("", config, cmd, vp)
 	manager.SetEnvLookupFunc(func(s string) (string, bool) {
 		switch s {
 		case "NARU_A":
@@ -319,7 +319,7 @@ func (t *testManager) TestEnvs() {
 
 	vp := viper.New()
 
-	manager := NewManager(config, cmd, vp)
+	manager := NewManager("", config, cmd, vp)
 
 	envs := manager.Envs()
 	t.Equal(2, len(envs))
@@ -342,7 +342,7 @@ func (t *testManager) TestFlagSet() {
 
 	vp := viper.New()
 
-	manager := NewManager(config, cmd, vp)
+	manager := NewManager("", config, cmd, vp)
 
 	var flagNames []string
 	fs := manager.FlagSet()

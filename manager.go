@@ -41,6 +41,7 @@ func (c viperConfig) Keys(group string, v *viper.Viper) ([]string, error) {
 
 type Manager struct {
 	sync.RWMutex
+	name          string
 	c             interface{}
 	v             *viper.Viper
 	cmd           *cobra.Command
@@ -54,7 +55,7 @@ type Manager struct {
 	groups        []string
 }
 
-func NewManager(c interface{}, cmd *cobra.Command, v *viper.Viper) *Manager {
+func NewManager(name string, c interface{}, cmd *cobra.Command, v *viper.Viper) *Manager {
 	root, m := parseConfig(c)
 
 	var groups []string
@@ -89,6 +90,7 @@ func NewManager(c interface{}, cmd *cobra.Command, v *viper.Viper) *Manager {
 	}
 
 	manager := &Manager{
+		name:          name,
 		c:             c,
 		cmd:           cmd,
 		v:             v,
@@ -153,7 +155,7 @@ func (m *Manager) MergeFromEnv() (string, error) {
 	log_.Debug("trying to merge")
 
 	for _, item := range m.m {
-		env := item.EnvName(m.group)
+		env := m.EnvName(item)
 		input, found := m.envLookupFunc(env)
 		if !found {
 			continue
@@ -379,10 +381,19 @@ func (m *Manager) Envs() []string {
 
 	var envs []string
 	for _, item := range m.m {
-		envs = append(envs, item.EnvName(m.group))
+		envs = append(envs, m.EnvName(item))
 	}
 
 	return envs
+}
+
+func (m *Manager) EnvName(item *Item) string {
+	prefix := m.group
+	if len(m.name) > 0 {
+		prefix = m.name + "-" + prefix
+	}
+
+	return item.EnvName(prefix)
 }
 
 func (m *Manager) ConfigPprint() (o []interface{}) {
