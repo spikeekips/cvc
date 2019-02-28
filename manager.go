@@ -381,9 +381,13 @@ func (m *Manager) Envs() []string {
 
 	var envs []string
 	for _, item := range m.m {
+		if item.IsGroup {
+			continue
+		}
 		envs = append(envs, m.EnvName(item))
 	}
 
+	sort.Strings(envs)
 	return envs
 }
 
