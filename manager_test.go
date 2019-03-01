@@ -1,6 +1,7 @@
 package cvc
 
 import (
+	"io"
 	"io/ioutil"
 	"sort"
 	"strconv"
@@ -204,8 +205,7 @@ func (t *testManager) TestValidate() {
 		B: "2",
 	}
 	config.validate = func() error {
-		config.A = 200
-		return nil
+		return io.EOF
 	}
 
 	cmd := &cobra.Command{
@@ -217,13 +217,14 @@ func (t *testManager) TestValidate() {
 	vp := viper.New()
 
 	manager := NewManager("", config, cmd, vp)
-	manager.Merge()
+	_, err := manager.Merge()
+	t.Equal(io.EOF, err)
 
 	{
 		var merged int
 		err := manager.GetValue("a", &merged)
 		t.NoError(err)
-		t.Equal(200, merged)
+		t.Equal(1, merged)
 	}
 }
 
@@ -386,6 +387,79 @@ func (t *testManager) TestFlagSet() {
 	sort.Strings(flagNames)
 	t.Equal("a", flagNames[0])
 	t.Equal("b", flagNames[1])
+}
+
+type testConfigMerge struct {
+	A int
+	B string
+
+	merge func() error
+}
+
+func (t *testConfigMerge) Merge() error {
+	if t.merge != nil {
+		return t.merge()
+	}
+
+	return nil
+}
+
+func (t *testManager) TestMergeFunc() {
+	config := &testConfigMerge{
+		A: 1,
+		B: "2",
+	}
+	config.merge = func() error {
+		config.A = 200
+		return nil
+	}
+
+	cmd := &cobra.Command{
+		Use:   "naru",
+		Short: "naru",
+	}
+	cmd.SetOutput(ioutil.Discard)
+
+	vp := viper.New()
+
+	manager := NewManager("", config, cmd, vp)
+	manager.Merge()
+
+	{
+		var merged int
+		err := manager.GetValue("a", &merged)
+		t.NoError(err)
+		t.Equal(200, merged)
+	}
+}
+
+func (t *testManager) TestMergeFuncError() {
+	config := &testConfigMerge{
+		A: 1,
+		B: "2",
+	}
+	config.merge = func() error {
+		return io.EOF
+	}
+
+	cmd := &cobra.Command{
+		Use:   "naru",
+		Short: "naru",
+	}
+	cmd.SetOutput(ioutil.Discard)
+
+	vp := viper.New()
+
+	manager := NewManager("", config, cmd, vp)
+	_, err := manager.Merge()
+	t.Equal(io.EOF, err)
+
+	{
+		var merged int
+		err := manager.GetValue("a", &merged)
+		t.NoError(err)
+		t.Equal(1, merged)
+	}
 }
 
 func TestManager(t *testing.T) {

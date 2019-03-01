@@ -432,3 +432,24 @@ func CallValidateFunc(f StructMethod) error {
 
 	return ErrorMethodNotFound
 }
+
+func CallMergeFunc(f StructMethod) error {
+	rs := f.Call()
+	err := rs[0].Interface()
+	if err == nil {
+		return nil
+	}
+
+	e, found := err.(error)
+	if found {
+		return e
+	}
+
+	log.Error(
+		"MergeXXX() return is not error type",
+		"return", err,
+		"kind", rs[0].Type().Kind(),
+	)
+
+	return ErrorMethodNotFound
+}

@@ -115,27 +115,45 @@ func (m *Manager) Merge() (string, error) {
 	if m.UseEnv() {
 		p, err := m.MergeFromEnv()
 		if err != nil {
-			return p, fmt.Errorf("failed to parse env, '%s': %v", p, err)
+			log.Error("failed to parse env", "item", p, "error", err)
+			return p, err
 		}
 
+		if t, err := m.root.Validate(); err != nil {
+			log.Error("failed to validate env", "item", p, "error", err)
+			return t, err
+		}
 	}
 
 	{
 		p, err := m.MergeFromViper()
 		if err != nil {
-			return p, fmt.Errorf("failed to parse viper, '%s': %v", p, err)
+			log.Error("failed to parse config", "item", p, "error", err)
+			return p, err
+		}
+
+		if t, err := m.root.Validate(); err != nil {
+			log.Error("failed to validate config", "item", t, "error", err)
+			return t, err
 		}
 	}
 
 	{
 		p, err := m.MergeFromFlags()
 		if err != nil {
-			return p, fmt.Errorf("failed to parse flag, '--%s': %v", p, err)
+			log.Error("failed to parse flag", "flag", p, "error", err)
+			return p, err
+		}
+
+		if t, err := m.root.Validate(); err != nil {
+			log.Error("failed to validate flag", "flag", t, "error", err)
+			return t, err
 		}
 	}
 
-	if t, err := m.root.Validate(); err != nil {
-		return t, fmt.Errorf("failed to validate, '%s': %v", t, err)
+	if t, err := m.root.Merge(); err != nil {
+		log.Error("failed to merge", "item", t, "error", err)
+		return t, err
 	}
 
 	return "", nil
@@ -398,12 +416,21 @@ func (m *Manager) ConfigPprint() (o []interface{}) {
 	m.RLock()
 	defer m.RUnlock()
 
-	for _, item := range m.m {
+	var names []string
+	for k, _ := range m.m {
+		names = append(names, k)
+	}
+
+	sort.Strings(names)
+
+	for _, k := range names {
+		item := m.m[k]
 		if item.IsGroup {
 			continue
 		}
-		o = append(o, "config-"+item.Name(), item.Value.Interface())
+		o = append(o, "\n\t"+item.Name(), item.Value.Interface())
 	}
+
 	return
 }
 

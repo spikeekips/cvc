@@ -16,6 +16,8 @@ var (
 
 type Group interface {
 	ThisIsGroup()
+	Validate() error
+	Merge() error
 }
 
 type BaseGroup struct{}
@@ -23,6 +25,10 @@ type BaseGroup struct{}
 func (b *BaseGroup) ThisIsGroup() {}
 
 func (b *BaseGroup) Validate() error {
+	return nil
+}
+
+func (b *BaseGroup) Merge() error {
 	return nil
 }
 
@@ -168,6 +174,33 @@ func (c *Item) validate() error {
 	fns := GetFuncFromItem(c, "Validate", 0, 1)
 	for _, f := range fns {
 		return CallValidateFunc(f)
+	}
+
+	return nil
+}
+
+func (c *Item) Merge() (string, error) {
+	for _, c := range c.Children {
+		if n, err := c.Merge(); err != nil {
+			return n, err
+		}
+	}
+
+	if err := c.merge(); err != nil {
+		return c.Name(), err
+	}
+
+	return "", nil
+}
+
+func (c *Item) merge() error {
+	if (c.Value.Kind() == reflect.Ptr && c.Value.Type().Elem().Kind() == reflect.Struct) && c.Value.IsNil() {
+		return nil
+	}
+
+	fns := GetFuncFromItem(c, "Merge", 0, 1)
+	for _, f := range fns {
+		return CallMergeFunc(f)
 	}
 
 	return nil
