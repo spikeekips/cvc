@@ -377,7 +377,7 @@ func parseConfigField(c interface{}, t reflect.Type, v reflect.Value, parents []
 		}
 		group.Children = append(group.Children, item)
 
-		m[item.Name()] = item
+		m[item.FullName()] = item
 		if ft.Type.Implements(groupType) {
 			item.IsGroup = true
 			n := parseConfigField(c, ft.Type, fv, append(parents, item))

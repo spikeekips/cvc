@@ -178,7 +178,7 @@ func (m *Manager) MergeFromEnv() (string, error) {
 			return env, err
 		}
 
-		if err := m.setRaw(item.Name(), v); err != nil {
+		if err := m.setRaw(item.FullName(), v); err != nil {
 			log_.Error("failed to merge", "env", env, "value", input, "error", err)
 			return env, err
 		}
@@ -221,7 +221,7 @@ func (m *Manager) MergeFromFlags() (string, error) {
 			problemFlag = f.Name
 			return
 		}
-		if err := m.setRaw(item.Name(), a); err != nil {
+		if err := m.setRaw(item.FullName(), a); err != nil {
 			problemFlag = f.Name
 			log_.Error("failed to merge", "flag", f.Name, "value", input, "error", err)
 			return
@@ -425,10 +425,10 @@ func (m *Manager) ConfigPprint() (o []interface{}) {
 
 	for _, k := range names {
 		item := m.m[k]
-		if item.IsGroup {
+		if item.IsGroup || !item.EnableFlag() {
 			continue
 		}
-		o = append(o, "\n\t"+item.Name(), item.Value.Interface())
+		o = append(o, "\n\t"+item.FullName(), item.Value.Interface())
 	}
 
 	return
@@ -730,7 +730,7 @@ func (m *Manager) setFlag(item *Item) error {
 		return fmt.Errorf("value type, '%s' is not supported by flag", t)
 	}
 
-	viperName := m.group + "." + item.Name()
+	viperName := m.group + "." + item.FullName()
 	m.v.SetDefault(viperName, defaultValue.Interface())
 
 	item.ViperName = viperName

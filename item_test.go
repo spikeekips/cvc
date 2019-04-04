@@ -17,7 +17,7 @@ func (t *testItem) TestName() {
 		FieldName: "Test",
 		Value:     reflect.ValueOf(value),
 	}
-	t.Equal("test", item.Name())
+	t.Equal("test", item.FullName())
 	t.Equal("test", item.FlagName())
 }
 
@@ -27,7 +27,7 @@ func (t *testItem) TestComplexName() {
 		FieldName: "TestShowme",
 		Value:     reflect.ValueOf(value),
 	}
-	t.Equal("test-showme", item.Name())
+	t.Equal("test-showme", item.FullName())
 	t.Equal("test-showme", item.FlagName())
 }
 
@@ -38,7 +38,7 @@ func (t *testItem) TestFlagTag() {
 		Value:     reflect.ValueOf(value),
 		Tag:       reflect.StructTag(`flag:"showme"`),
 	}
-	t.Equal("test", item.Name())
+	t.Equal("showme", item.FullName())
 	t.Equal("showme", item.FlagName())
 }
 
@@ -55,7 +55,8 @@ func (t *testItem) TestGroup() {
 		Tag:       reflect.StructTag(`flag:"showme"`),
 		Group:     group,
 	}
-	t.Equal("this-is-group.test", item.Name())
+	t.Equal("showme", item.Name())
+	t.Equal("this-is-group.showme", item.FullName())
 	t.Equal("this-is-group-showme", item.FlagName())
 }
 

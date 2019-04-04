@@ -46,12 +46,13 @@ type Item struct {
 func (c Item) String() string {
 	groupName := ""
 	if c.Group != nil {
-		groupName = c.Group.Name()
+		groupName = c.Group.FullName()
 	}
 	return fmt.Sprintf(
-		"<Item Name()=%s FieldName=%s Group=%s Children=%d IsGroup=%v>",
-		c.Name(),
+		"<Item Name()=%s FieldName=%s Name=%s Group=%s Children=%d IsGroup=%v>",
+		c.FullName(),
 		c.FieldName,
+		c.Name(),
 		groupName,
 		len(c.Children),
 		c.IsGroup,
@@ -66,10 +67,10 @@ func (c *Item) prefixes() []string {
 		if group == nil {
 			break
 		}
-		if len(group.FieldName) < 1 {
+		if len(group.Name()) < 1 {
 			break
 		}
-		names = append(names[:0], append([]string{group.FieldName}, names[0:]...)...)
+		names = append(names[:0], append([]string{group.Name()}, names[0:]...)...)
 
 		group = group.Group
 	}
@@ -100,7 +101,7 @@ func (c *Item) FlagName() string {
 	case len(tag) > 0:
 		return strings.Replace(c.name(tag), ".", "-", -1)
 	default:
-		return strings.Replace(c.Name(), ".", "-", -1)
+		return strings.Replace(c.FullName(), ".", "-", -1)
 	}
 
 	return ""
@@ -115,7 +116,7 @@ func (c *Item) EnvName(prefix string) string {
 	case len(env) > 0:
 		t = env
 	default:
-		t = c.FieldName
+		t = c.Name()
 	}
 
 	s := strings.Replace(
@@ -149,7 +150,18 @@ func (c *Item) name(n string) string {
 }
 
 func (c *Item) Name() string {
-	return c.name(c.FieldName)
+	t := c.FieldName
+	n := c.Tag.Get("flag")
+	switch {
+	case len(n) > 0:
+		t = n
+	}
+
+	return t
+}
+
+func (c *Item) FullName() string {
+	return c.name(c.Name())
 }
 
 func (c *Item) Validate() (string, error) {
@@ -160,7 +172,7 @@ func (c *Item) Validate() (string, error) {
 	}
 
 	if err := c.validate(); err != nil {
-		return c.Name(), err
+		return c.FullName(), err
 	}
 
 	return "", nil
@@ -187,7 +199,7 @@ func (c *Item) Merge() (string, error) {
 	}
 
 	if err := c.merge(); err != nil {
-		return c.Name(), err
+		return c.FullName(), err
 	}
 
 	return "", nil
@@ -216,7 +228,7 @@ func (c *Item) Parse(i interface{}) (interface{}, error) {
 }
 
 func (c *Item) ParseEnv(i string) (interface{}, error) {
-	log_ := log.New(logging.Ctx{"item": c.Name(), "action": "parseEnv", "input": i})
+	log_ := log.New(logging.Ctx{"item": c.FullName(), "action": "parseEnv", "input": i})
 
 	fns := GetFuncFromItem(c, "ParseEnv", 1, 2)
 	for _, f := range fns {
